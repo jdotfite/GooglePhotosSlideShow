@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Google Photos Slideshow</title>
+  <!-- Meta tag to help with Content Security Policy -->
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://*.googleapis.com https://accounts.google.com https://*.gstatic.com">
+  
+  <script src="https://apis.google.com/js/api.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+    
+    .controls {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+      gap: 10px;
+    }
+    
+    button {
+      padding: 10px 15px;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    button:hover {
+      background-color: #3367d6;
+    }
+    
+    #albumSelector {
+      margin: 20px auto;
+      text-align: center;
+      display: none;
+    }
+    
+    select {
+      padding: 8px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+    
+    .slideshow-container {
+      position: relative;
+      max-width: 1000px;
+      margin: auto;
+      background-color: black;
+      border-radius: 8px;
+      overflow: hidden;
+      height: 600px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .slide {
+      display: none;
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      text-align: center;
+    }
+    
+    .slide.active {
+      display: block;
+    }
+    
+    .slide img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      margin: 0;
+      border: none;
+    }
+    
+    .prev, .next {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 16px;
+      color: white;
+      font-weight: bold;
+      font-size: 18px;
+      transition: 0.6s ease;
+      border-radius: 0 3px 3px 0;
+      user-select: none;
+      background-color: rgba(0,0,0,0.4);
+      cursor: pointer;
+      z-index: 10;
+    }
+    
+    .next {
+      right: 0;
+      border-radius: 3px 0 0 3px;
+    }
+    
+    .prev {
+      left: 0;
+    }
+    
+    .prev:hover, .next:hover {
+      background-color: rgba(0,0,0,0.8);
+    }
+    
+    .caption {
+      position: absolute;
+      bottom: 8px;
+      width: 100%;
+      text-align: center;
+      color: white;
+      background-color: rgba(0,0,0,0.6);
+      padding: 8px 0;
+    }
+    
+    .thumbnail-container {
+      display: flex;
+      overflow-x: auto;
+      margin-top: 10px;
+      padding: 10px 0;
+      background-color: #333;
+      border-radius: 4px;
+    }
+    
+    .thumbnail {
+      width: 100px;
+      height: 100px;
+      object-fit: cover;
+      margin: 0 5px;
+      cursor: pointer;
+      border: 3px solid transparent;
+      border-radius: 4px;
+    }
+    
+    .thumbnail.active {
+      border-color: #4285f4;
+    }
+    
+    #loading {
+      text-align: center;
+      margin: 20px;
+      display: none;
+    }
+    
+    .autoplay-control {
+      margin-top: 10px;
+      text-align: center;
+    }
+    
+    #status {
+      margin: 20px;
+      padding: 10px;
+      border-radius: 4px;
+      background-color: #f8f8f8;
+      display: none;
+    }
+    
+    #manual-auth {
+      display: none;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #e8f5e9;
+      border-radius: 8px;
+      max-width: 600px;
+    }
+    
+    #token-input {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Google Photos Slideshow</h1>
+  <div id="status"></div>
+  
+  <div class="controls">
+    <button id="authorize_button">Sign In with Google</button>
+    <button id="manual_auth_button">Use Manual Authentication</button>
+    <button id="signout_button" style="display: none;">Sign Out</button>
+  </div>
+  
+  <div id="manual-auth">
+    <h3>Manual Authentication Steps</h3>
+    <p>Due to security restrictions in GitHub Codespaces, we'll use an alternative authentication method:</p>
+    <ol>
+      <li>Click on the link below to open the Google authorization page</li>
+      <li>Sign in with your Google account and grant access to your Google Photos</li>
+      <li>After authorization, you'll be redirected to a page with an access token in the URL</li>
+      <li>Copy the entire URL and paste it in the box below</li>
+      <li>Click "Use Token" to start</li>
+    </ol>
+    <a id="auth-link" href="#" target="_blank">Open Google Authorization</a>
+    <input type="text" id="token-input" placeholder="Paste the full redirect URL here">
+    <button id="use-token">Use Token</button>
+  </div>
+  
+  <div id="albumSelector" style="display: none;">
+    <label for="albums">Select an album: </label>
+    <select id="albums"></select>
+    <button id="loadAlbum">Load Album</button>
+  </div>
+  
+  <div id="loading">Loading photos...</div>
+  
+  <div class="slideshow-container" id="slideshow" style="display: none;">
+    <a class="prev" onclick="changeSlide(-1)">&#10094;</a>
+    <a class="next" onclick="changeSlide(1)">&#10095;</a>
+  </div>
+  
+  <div class="thumbnail-container" id="thumbnails" style="display: none;"></div>
+  
+  <div class="autoplay-control" style="display: none;">
+    <button id="autoplay">Start Slideshow</button>
+    <select id="interval">
+      <option value="3000">3 seconds</option>
+      <option value="5000" selected>5 seconds</option>
+      <option value="8000">8 seconds</option>
+      <option value="10000">10 seconds</option>
+    </select>
+  </div>
+  
+  <script>
+    // Configuration 
+    const CLIENT_ID = '901230924815-j4vq4agkg72hd7dc82tpqt8mms4h17u2.apps.googleusercontent.com';
+    const API_KEY = 'AIzaSyAW4-pqkJqG1-xl5rq_TNnhVG3NRCw7ZTI';
+    
+    // Debug information
+    console.log("Current page origin:", window.location.origin);
+    console.log("Full URL:", window.location.href);
+    
+    // API discovery doc URL and authorization scope
+    const DISCOVERY_DOCS = ["https://photoslibrary.googleapis.com/$discovery/rest?version=v1"];
+    const SCOPES = 'https://www.googleapis.com/auth/photoslibrary.readonly';
+    
+    // Slideshow variables
+    let slideIndex = 0;
+    let slides = [];
+    let autoplayInterval = null;
+    let accessToken = null;
+    
+    // Event listeners
+    document.getElementById('authorize_button').addEventListener('click', handleAuthClick);
+    document.getElementById('manual_auth_button').addEventListener('click', showManualAuth);
+    document.getElementById('signout_button').addEventListener('click', handleSignoutClick);
+    document.getElementById('loadAlbum').addEventListener('click', loadSelectedAlbum);
+    document.getElementById('autoplay').addEventListener('click', toggleAutoplay);
+    document.getElementById('use-token').addEventListener('click', useManualToken);
+    
+    // Initialize the API client if possible
+    window.onload = function() {
+      // Set up manual auth link
+      const authLink = document.getElementById('auth-link');
+      const redirectUri = encodeURIComponent(window.location.origin);
+      const authUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${CLIENT_ID}&redirect_uri=${redirectUri}&scope=${encodeURIComponent(SCOPES)}&response_type=token&prompt=consent`;
+      authLink.href = authUrl;
+      
+      // Try to load the Google API client
+      try {
+        gapi.load('client', initClient);
+      } catch (error) {
+        showStatus('Error loading Google API client. Manual authentication may be required.', true);
+      }
+      
+      // Check if we have a token from a redirect
+      if (window.location.hash && window.location.hash.includes('access_token')) {
+        handleRedirectToken();
+      }
+    };
+    
+    function initClient() {
+      showStatus('Initializing Google API client...');
+      
+      gapi.client.init({
+        apiKey: API_KEY,
+        clientId: CLIENT_ID,
+        discoveryDocs: DISCOVERY_DOCS,
+        scope: SCOPES,
+        ux_mode: 'popup',
+        prompt: 'consent'
+      }).then(function() {
+        // Handle sign-in state
+        if (gapi.auth2 && gapi.auth2.getAuthInstance()) {
+          updateSigninStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
+          gapi.auth2.getAuthInstance().isSignedIn.listen(updateSigninStatus);
+        } else {
+          showStatus('Auth2 instance not available. Please use manual authentication.', true);
+          document.getElementById('manual_auth_button').style.display = 'block';
+        }
+      }).catch(function(error) {
+        showStatus('Error initializing the client: ' + JSON.stringify(error, null, 2), true);
+        document.getElementById('manual_auth_button').style.display = 'block';
+      });
+    }
+    
+    function updateSigninStatus(isSignedIn) {
+      if (isSignedIn) {
+        document.getElementById('authorize_button').style.display = 'none';
+        document.getElementById('manual_auth_button').style.display = 'none';
+        document.getElementById('signout_button').style.display = 'block';
+        document.getElementById('manual-auth').style.display = 'none';
+        listAlbums();
+      } else {
+        document.getElementById('authorize_button').style.display = 'block';
+        document.getElementById('manual_auth_button').style.display = 'block';
+        document.getElementById('signout_button').style.display = 'none';
+        document.getElementById('albumSelector').style.display = 'none';
+        document.getElementById('slideshow').style.display = 'none';
+        document.getElementById('thumbnails').style.display = 'none';
+        document.querySelector('.autoplay-control').style.display = 'none';
+      }
+    }
+    
+    function handleAuthClick() {
+      showStatus('Authorizing...');
+      try {
+        if (gapi.auth2 && gapi.auth2.getAuthInstance()) {
+          gapi.auth2.getAuthInstance().signIn();
+        } else {
+          showStatus('Auth2 instance not available. Please use manual authentication.', true);
+          showManualAuth();
+        }
+      } catch (error) {
+        showStatus('Error during authentication: ' + error.message, true);
+        showManualAuth();
+      }
+    }
+    
+    function showManualAuth() {
+      document.getElementById('manual-auth').style.display = 'block';
+    }
+    
+    function handleRedirectToken() {
+      const fragmentParams = new URLSearchParams(window.location.hash.substring(1));
+      accessToken = fragmentParams.get('access_token');
+      
+      if (accessToken) {
+        showStatus('Token received. You can now access your photos.');
+        document.getElementById('authorize_button').style.display = 'none';
+        document.getElementById('manual_auth_button').style.display = 'none';
+        document.getElementById('signout_button').style.display = 'block';
+        document.getElementById('manual-auth').style.display = 'none';
+        
+        // Remove token from URL for security
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        // Continue with the app flow
+        listAlbumsWithToken(accessToken);
+      }
+    }
+    
+    function useManualToken() {
+      const tokenInput = document.getElementById('token-input').value;
+      
+      if (!tokenInput) {
+        showStatus('Please paste the redirect URL first.', true);
+        return;
+      }
+      
+      try {
+        let url;
+        try {
+          url = new URL(tokenInput);
+        } catch {
+          // Not a valid URL, try to extract just the token
+          if (tokenInput.includes('access_token=')) {
+            const tokenPart = tokenInput.split('access_token=')[1];
+            accessToken = tokenPart.split('&')[0];
+          } else {
+            // Assume the entire input is the token
+            accessToken = tokenInput;
+          }
+        }
+        
+        if (url) {
+          const fragmentParams = new URLSearchParams(url.hash.substring(1));
+          accessToken = fragmentParams.get('access_token');
+        }
+        
+        if (accessToken) {
+          showStatus('Token accepted. Loading your albums...');
+          document.getElementById('authorize_button').style.display = 'none';
+          document.getElementById('manual_auth_button').style.display = 'none';
+          document.getElementById('signout_button').style.display = 'block';
+          document.getElementById('manual-auth').style.display = 'none';
+          
+          // Continue with the app flow
+          listAlbumsWithToken(accessToken);
+        } else {
+          showStatus('Could not extract a valid token from input.', true);
+        }
+      } catch (error) {
+        showStatus('Error processing token: ' + error.message, true);
+      }
+    }
+    
+    function handleSignoutClick() {
+      if (autoplayInterval) {
+        clearInterval(autoplayInterval);
+        autoplayInterval = null;
+        document.getElementById('autoplay').textContent = 'Start Slideshow';
+      }
+      
+      try {
+        if (gapi.auth2 && gapi.auth2.getAuthInstance()) {
+          gapi.auth2.getAuthInstance().signOut();
+        }
+      } catch (error) {
+        // Ignore error if gapi is not available
+      }
+      
+      // Reset token
+      accessToken = null;
+      
+      // Reset UI state
+      document.getElementById('authorize_button').style.display = 'block';
+      document.getElementById('manual_auth_button').style.display = 'block';
+      document.getElementById('signout_button').style.display = 'none';
+      document.getElementById('albumSelector').style.display = 'none';
+      document.getElementById('slideshow').style.display = 'none';
+      document.getElementById('thumbnails').style.display = 'none';
+      document.querySelector('.autoplay-control').style.display = 'none';
+      
+      showStatus('Signed out successfully.');
+    }
+    
+    function listAlbums() {
+      showStatus('Loading your albums...');
+      document.getElementById('loading').style.display = 'block';
+      
+      gapi.client.photoslibrary.albums.list({
+        pageSize: 50,
+        excludeNonAppCreatedData: false
+      }).then(function(response) {
+        document.getElementById('loading').style.display = 'none';
+        
+        const albums = response.result.albums;
+        const selectElement = document.getElementById('albums');
+        selectElement.innerHTML = '';
+        
+        if (albums && albums.length > 0) {
+          albums.forEach(function(album) {
+            const option = document.createElement('option');
+            option.value = album.id;
+            option.textContent = album.title;
+            selectElement.appendChild(option);
+          });
+          
+          document.getElementById('albumSelector').style.display = 'block';
+          showStatus('Please select an album to view.');
+        } else {
+          showStatus('No albums found in your Google Photos account.', true);
+        }
+      }, function(error) {
+        document.getElementById('loading').style.display = 'none';
+        showStatus('Error fetching albums: ' + JSON.stringify(error, null, 2), true);
+      });
+    }
+    
+    function listAlbumsWithToken(token) {
+      showStatus('Loading your albums...');
+      document.getElementById('loading').style.display = 'block';
+      
+      fetch('https://photoslibrary.googleapis.com/v1/albums?pageSize=50', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Failed to fetch albums: ' + response.status);
+        }
+        return response.json();
+      })
+      .then(data => {
+        document.getElementById('loading').style.display = 'none';
+        
+        const albums = data.albums;
+        const selectElement = document.getElementById('albums');
+        selectElement.innerHTML = '';
+        
+        if (albums && albums.length > 0) {
+          albums.forEach(function(album) {
+            const option = document.createElement('option');
+            option.value = album.id;
+            option.textContent = album.title;
+            selectElement.appendChild(option);
+          });
+          
+          document.getElementById('albumSelector').style.display = 'block';
+          showStatus('Please select an album to view.');
+        } else {
+          showStatus('No albums found in your Google Photos account.', true);
+        }
+      })
+      .catch(error => {
+        document.getElementById('loading').style.display = 'none';
+        showStatus('Error fetching albums: ' + error.message, true);
+      });
+    }
+    
+    function loadSelectedAlbum() {
+      const selectElement = document.getElementById('albums');
+      const albumId = selectElement.value;
+      
+      if (!albumId) {
+        showStatus('Please select an album first.', true);
+        return;
+      }
+      
+      const albumName = selectElement.options[selectElement.selectedIndex].text;
+      showStatus(`Loading photos from album: "${albumName}"`);
+      document.getElementById('loading').style.display = 'block';
+      
+      if (accessToken) {
+        loadAlbumItemsWithToken(albumId);
+      } else {
+        loadAlbumItems(albumId);
+      }
+    }
+    
+    function loadAlbumItems(albumId, pageToken = null) {
+      const params = {
+        albumId: albumId,
+        pageSize: 100
+      };
+      
+      if (pageToken) {
+        params.pageToken = pageToken;
+      }
+      
+      gapi.client.photoslibrary.mediaItems.search(params)
+        .then(function(response) {
+          const mediaItems = response.result.mediaItems || [];
+          
+          if (mediaItems.length > 0) {
+            if (!pageToken) {
+              // Clear previous slides
+              document.getElementById('slideshow').innerHTML = '<a class="prev" onclick="changeSlide(-1)">&#10094;</a><a class="next" onclick="changeSlide(1)">&#10095;</a>';
+              document.getElementById('thumbnails').innerHTML = '';
+              slides = [];
+            }
+            
+            // Add new items
+            processMediaItems(mediaItems);
+            
+            // If there's a next page, fetch more items
+            if (response.result.nextPageToken) {
+              loadAlbumItems(albumId, response.result.nextPageToken);
+            } else {
+              finishLoadingAlbum();
+            }
+          } else {
+            if (!pageToken) {
+              showStatus('This album is empty.', true);
+              document.getElementById('loading').style.display = 'none';
+            } else {
+              finishLoadingAlbum();
+            }
+          }
+        })
+        .catch(function(error) {
+          document.getElementById('loading').style.display = 'none';
+          showStatus('Error loading album: ' + JSON.stringify(error, null, 2), true);
+        });
+    }
+    
+    function loadAlbumItemsWithToken(albumId, pageToken = null) {
+      const body = {
+        albumId: albumId,
+        pageSize: 100
+      };
+      
+      if (pageToken) {
+        body.pageToken = pageToken;
+      }
+      
+      fetch('https://photoslibrary.googleapis.com/v1/mediaItems:search', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Failed to fetch media items: ' + response.status);
+        }
+        return response.json();
+      })
+      .then(data => {
+        const mediaItems = data.mediaItems || [];
+        
+        if (mediaItems.length > 0) {
+          if (!pageToken) {
+            // Clear previous slides
+            document.getElementById('slideshow').innerHTML = '<a class="prev" onclick="changeSlide(-1)">&#10094;</a><a class="next" onclick="changeSlide(1)">&#10095;</a>';
+            document.getElementById('thumbnails').innerHTML = '';
+            slides = [];
+          }
+          
+          // Add new items
+          processMediaItems(mediaItems);
+          
+          // If there's a next page, fetch more items
+          if (data.nextPageToken) {
+            loadAlbumItemsWithToken(albumId, data.nextPageToken);
+          } else {
+            finishLoadingAlbum();
+          }
+        } else {
+          if (!pageToken) {
+            showStatus('This album is empty.', true);
+            document.getElementById('loading').style.display = 'none';
+          } else {
+            finishLoadingAlbum();
+          }
+        }
+      })
+      .catch(error => {
+        document.getElementById('loading').style.display = 'none';
+        showStatus('Error loading album: ' + error.message, true);
+      });
+    }
+    
+    function processMediaItems(mediaItems) {
+      mediaItems.forEach(function(item, index) {
+        if (item.mimeType && item.mimeType.startsWith('image/')) {
+          const baseUrl = item.baseUrl;
+          const slideDiv = document.createElement('div');
+          slideDiv.className = 'slide';
+          
+          const img = document.createElement('img');
+          img.src = baseUrl + '=w1200-h1200';
+          img.alt = item.filename || 'Photo';
+          slideDiv.appendChild(img);
+          
+          if (item.description) {
+            const caption = document.createElement('div');
+            caption.className = 'caption';
+            caption.textContent = item.description;
+            slideDiv.appendChild(caption);
+          }
+          
+          document.getElementById('slideshow').appendChild(slideDiv);
+          
+          // Add thumbnail
+          const thumb = document.createElement('img');
+          thumb.src = baseUrl + '=w100-h100-c';
+          thumb.className = 'thumbnail';
+          thumb.alt = item.filename || 'Thumbnail';
+          thumb.dataset.index = slides.length;
+          thumb.onclick = function() {
+            showSlide(parseInt(this.dataset.index));
+          };
+          document.getElementById('thumbnails').appendChild(thumb);
+          
+          slides.push(slideDiv);
+        }
+      });
+    }
+    
+    function finishLoadingAlbum() {
+      document.getElementById('loading').style.display = 'none';
+      
+      if (slides.length > 0) {
+        document.getElementById('slideshow').style.display = 'block';
+        document.getElementById('thumbnails').style.display = 'flex';
+        document.querySelector('.autoplay-control').style.display = 'block';
+        
+        showSlide(0);
+        showStatus(`Loaded ${slides.length} photos successfully.`);
+      } else {
+        showStatus('No photos found in this album.', true);
+      }
+    }
+    
+    function showSlide(n) {
+      if (slides.length === 0) return;
+      
+      // Remove active class from all slides
+      for (let i = 0; i < slides.length; i++) {
+        slides[i].classList.remove('active');
+        document.querySelectorAll('.thumbnail')[i].classList.remove('active');
+      }
+      
+      // Set the current slide index
+      slideIndex = n;
+      if (slideIndex >= slides.length) slideIndex = 0;
+      if (slideIndex < 0) slideIndex = slides.length - 1;
+      
+      // Show the current slide
+      slides[slideIndex].classList.add('active');
+      document.querySelectorAll('.thumbnail')[slideIndex].classList.add('active');
+      
+      // Scroll the thumbnail into view
+      document.querySelectorAll('.thumbnail')[slideIndex].scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'center'
+      });
+    }
+    
+    function changeSlide(n) {
+      showSlide(slideIndex + n);
+    }
+    
+    function toggleAutoplay() {
+      const button = document.getElementById('autoplay');
+      
+      if (autoplayInterval) {
+        clearInterval(autoplayInterval);
+        autoplayInterval = null;
+        button.textContent = 'Start Slideshow';
+      } else {
+        const interval = parseInt(document.getElementById('interval').value);
+        button.textContent = 'Stop Slideshow';
+        
+        // Show first slide immediately
+        showSlide(slideIndex);
+        
+        // Start automatic slideshow
+        autoplayInterval = setInterval(function() {
+          changeSlide(1);
+        }, interval);
+      }
+    }
+    
+    function showStatus(message, isError = false) {
+      const statusDiv = document.getElementById('status');
+      statusDiv.textContent = message;
+      statusDiv.style.display = 'block';
+      
+      if (isError) {
+        statusDiv.style.backgroundColor = '#ffebee';
+        statusDiv.style.color = '#c62828';
+      } else {
+        statusDiv.style.backgroundColor = '#f8f8f8';
+        statusDiv.style.color = '#333';
+      }
+      
+      // Auto-hide non-error messages after 5 seconds
+      if (!isError) {
+        setTimeout(function() {
+          statusDiv.style.display = 'none';
+        }, 5000);
+      }
+    }
+  </script>
+</body>
+</html>
