@@ -2,9 +2,6 @@
 <html>
 <head>
   <title>Google Photos Slideshow</title>
-  <!-- Meta tag to help with Content Security Policy -->
-  <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://*.googleapis.com https://accounts.google.com https://*.gstatic.com">
-  
   <script src="https://apis.google.com/js/api.js"></script>
   <style>
     body {
@@ -167,23 +164,6 @@
       background-color: #f8f8f8;
       display: none;
     }
-    
-    #manual-auth {
-      display: none;
-      margin: 20px auto;
-      padding: 20px;
-      background-color: #e8f5e9;
-      border-radius: 8px;
-      max-width: 600px;
-    }
-    
-    #token-input {
-      width: 100%;
-      padding: 10px;
-      margin: 10px 0;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-    }
   </style>
 </head>
 <body>
@@ -191,24 +171,8 @@
   <div id="status"></div>
   
   <div class="controls">
-    <button id="authorize_button">Sign In with Google</button>
-    <button id="manual_auth_button">Use Manual Authentication</button>
+    <button id="authorize_button" style="display: none;">Sign In with Google</button>
     <button id="signout_button" style="display: none;">Sign Out</button>
-  </div>
-  
-  <div id="manual-auth">
-    <h3>Manual Authentication Steps</h3>
-    <p>Due to security restrictions in GitHub Codespaces, we'll use an alternative authentication method:</p>
-    <ol>
-      <li>Click on the link below to open the Google authorization page</li>
-      <li>Sign in with your Google account and grant access to your Google Photos</li>
-      <li>After authorization, you'll be redirected to a page with an access token in the URL</li>
-      <li>Copy the entire URL and paste it in the box below</li>
-      <li>Click "Use Token" to start</li>
-    </ol>
-    <a id="auth-link" href="#" target="_blank">Open Google Authorization</a>
-    <input type="text" id="token-input" placeholder="Paste the full redirect URL here">
-    <button id="use-token">Use Token</button>
   </div>
   
   <div id="albumSelector" style="display: none;">
@@ -237,11 +201,11 @@
   </div>
   
   <script>
-    // Configuration 
+    // Configuration with your credentials
     const CLIENT_ID = '901230924815-j4vq4agkg72hd7dc82tpqt8mms4h17u2.apps.googleusercontent.com';
     const API_KEY = 'AIzaSyAW4-pqkJqG1-xl5rq_TNnhVG3NRCw7ZTI';
     
-    // Debug information
+    // Debug information to help troubleshoot
     console.log("Current page origin:", window.location.origin);
     console.log("Full URL:", window.location.href);
     
@@ -249,40 +213,19 @@
     const DISCOVERY_DOCS = ["https://photoslibrary.googleapis.com/$discovery/rest?version=v1"];
     const SCOPES = 'https://www.googleapis.com/auth/photoslibrary.readonly';
     
+    // Note: If you haven't added this scope to your OAuth consent screen,
+    // it will still be requested during authentication, but users will see
+    // an "unverified app" warning and may need to click through additional screens.
+    
     // Slideshow variables
     let slideIndex = 0;
     let slides = [];
     let autoplayInterval = null;
-    let accessToken = null;
     
-    // Event listeners
-    document.getElementById('authorize_button').addEventListener('click', handleAuthClick);
-    document.getElementById('manual_auth_button').addEventListener('click', showManualAuth);
-    document.getElementById('signout_button').addEventListener('click', handleSignoutClick);
-    document.getElementById('loadAlbum').addEventListener('click', loadSelectedAlbum);
-    document.getElementById('autoplay').addEventListener('click', toggleAutoplay);
-    document.getElementById('use-token').addEventListener('click', useManualToken);
-    
-    // Initialize the API client if possible
-    window.onload = function() {
-      // Set up manual auth link
-      const authLink = document.getElementById('auth-link');
-      const redirectUri = encodeURIComponent(window.location.origin);
-      const authUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${CLIENT_ID}&redirect_uri=${redirectUri}&scope=${encodeURIComponent(SCOPES)}&response_type=token&prompt=consent`;
-      authLink.href = authUrl;
-      
-      // Try to load the Google API client
-      try {
-        gapi.load('client', initClient);
-      } catch (error) {
-        showStatus('Error loading Google API client. Manual authentication may be required.', true);
-      }
-      
-      // Check if we have a token from a redirect
-      if (window.location.hash && window.location.hash.includes('access_token')) {
-        handleRedirectToken();
-      }
-    };
+    // Initialize the API client
+    function handleClientLoad() {
+      gapi.load('client:auth2', initClient);
+    }
     
     function initClient() {
       showStatus('Initializing Google API client...');
@@ -292,33 +235,31 @@
         clientId: CLIENT_ID,
         discoveryDocs: DISCOVERY_DOCS,
         scope: SCOPES,
-        ux_mode: 'popup',
-        prompt: 'consent'
+        ux_mode: 'popup',  // Use popup mode instead of redirect
+        prompt: 'consent'  // Always prompt for consent
       }).then(function() {
-        // Handle sign-in state
-        if (gapi.auth2 && gapi.auth2.getAuthInstance()) {
-          updateSigninStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
-          gapi.auth2.getAuthInstance().isSignedIn.listen(updateSigninStatus);
-        } else {
-          showStatus('Auth2 instance not available. Please use manual authentication.', true);
-          document.getElementById('manual_auth_button').style.display = 'block';
-        }
-      }).catch(function(error) {
+        // Listen for sign-in state changes
+        gapi.auth2.getAuthInstance().isSignedIn.listen(updateSigninStatus);
+        
+        // Handle the initial sign-in state
+        updateSigninStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
+        
+        document.getElementById('authorize_button').onclick = handleAuthClick;
+        document.getElementById('signout_button').onclick = handleSignoutClick;
+        document.getElementById('loadAlbum').onclick = loadSelectedAlbum;
+        document.getElementById('autoplay').onclick = toggleAutoplay;
+      }, function(error) {
         showStatus('Error initializing the client: ' + JSON.stringify(error, null, 2), true);
-        document.getElementById('manual_auth_button').style.display = 'block';
       });
     }
     
     function updateSigninStatus(isSignedIn) {
       if (isSignedIn) {
         document.getElementById('authorize_button').style.display = 'none';
-        document.getElementById('manual_auth_button').style.display = 'none';
         document.getElementById('signout_button').style.display = 'block';
-        document.getElementById('manual-auth').style.display = 'none';
         listAlbums();
       } else {
         document.getElementById('authorize_button').style.display = 'block';
-        document.getElementById('manual_auth_button').style.display = 'block';
         document.getElementById('signout_button').style.display = 'none';
         document.getElementById('albumSelector').style.display = 'none';
         document.getElementById('slideshow').style.display = 'none';
@@ -329,85 +270,7 @@
     
     function handleAuthClick() {
       showStatus('Authorizing...');
-      try {
-        if (gapi.auth2 && gapi.auth2.getAuthInstance()) {
-          gapi.auth2.getAuthInstance().signIn();
-        } else {
-          showStatus('Auth2 instance not available. Please use manual authentication.', true);
-          showManualAuth();
-        }
-      } catch (error) {
-        showStatus('Error during authentication: ' + error.message, true);
-        showManualAuth();
-      }
-    }
-    
-    function showManualAuth() {
-      document.getElementById('manual-auth').style.display = 'block';
-    }
-    
-    function handleRedirectToken() {
-      const fragmentParams = new URLSearchParams(window.location.hash.substring(1));
-      accessToken = fragmentParams.get('access_token');
-      
-      if (accessToken) {
-        showStatus('Token received. You can now access your photos.');
-        document.getElementById('authorize_button').style.display = 'none';
-        document.getElementById('manual_auth_button').style.display = 'none';
-        document.getElementById('signout_button').style.display = 'block';
-        document.getElementById('manual-auth').style.display = 'none';
-        
-        // Remove token from URL for security
-        window.history.replaceState({}, document.title, window.location.pathname);
-        
-        // Continue with the app flow
-        listAlbumsWithToken(accessToken);
-      }
-    }
-    
-    function useManualToken() {
-      const tokenInput = document.getElementById('token-input').value;
-      
-      if (!tokenInput) {
-        showStatus('Please paste the redirect URL first.', true);
-        return;
-      }
-      
-      try {
-        let url;
-        try {
-          url = new URL(tokenInput);
-        } catch {
-          // Not a valid URL, try to extract just the token
-          if (tokenInput.includes('access_token=')) {
-            const tokenPart = tokenInput.split('access_token=')[1];
-            accessToken = tokenPart.split('&')[0];
-          } else {
-            // Assume the entire input is the token
-            accessToken = tokenInput;
-          }
-        }
-        
-        if (url) {
-          const fragmentParams = new URLSearchParams(url.hash.substring(1));
-          accessToken = fragmentParams.get('access_token');
-        }
-        
-        if (accessToken) {
-          showStatus('Token accepted. Loading your albums...');
-          document.getElementById('authorize_button').style.display = 'none';
-          document.getElementById('manual_auth_button').style.display = 'none';
-          document.getElementById('signout_button').style.display = 'block';
-          document.getElementById('manual-auth').style.display = 'none';
-          
-          // Continue with the app flow
-          listAlbumsWithToken(accessToken);
-        } else {
-          showStatus('Could not extract a valid token from input.', true);
-        }
-      } catch (error) {
-        showStatus('Error processing token: ' + error.message, true);
-      }
+      gapi.auth2.getAuthInstance().signIn();
     }
     
     function handleSignoutClick() {
@@ -417,26 +280,7 @@
         document.getElementById('autoplay').textContent = 'Start Slideshow';
       }
       
-      try {
-        if (gapi.auth2 && gapi.auth2.getAuthInstance()) {
-          gapi.auth2.getAuthInstance().signOut();
-        }
-      } catch (error) {
-        // Ignore error if gapi is not available
-      }
-      
-      // Reset token
-      accessToken = null;
-      
-      // Reset UI state
-      document.getElementById('authorize_button').style.display = 'block';
-      document.getElementById('manual_auth_button').style.display = 'block';
-      document.getElementById('signout_button').style.display = 'none';
-      document.getElementById('albumSelector').style.display = 'none';
-      document.getElementById('slideshow').style.display = 'none';
-      document.getElementById('thumbnails').style.display = 'none';
-      document.querySelector('.autoplay-control').style.display = 'none';
-      
+      gapi.auth2.getAuthInstance().signOut();
       showStatus('Signed out successfully.');
     }
     
@@ -473,48 +317,6 @@
       });
     }
     
-    function listAlbumsWithToken(token) {
-      showStatus('Loading your albums...');
-      document.getElementById('loading').style.display = 'block';
-      
-      fetch('https://photoslibrary.googleapis.com/v1/albums?pageSize=50', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Failed to fetch albums: ' + response.status);
-        }
-        return response.json();
-      })
-      .then(data => {
-        document.getElementById('loading').style.display = 'none';
-        
-        const albums = data.albums;
-        const selectElement = document.getElementById('albums');
-        selectElement.innerHTML = '';
-        
-        if (albums && albums.length > 0) {
-          albums.forEach(function(album) {
-            const option = document.createElement('option');
-            option.value = album.id;
-            option.textContent = album.title;
-            selectElement.appendChild(option);
-          });
-          
-          document.getElementById('albumSelector').style.display = 'block';
-          showStatus('Please select an album to view.');
-        } else {
-          showStatus('No albums found in your Google Photos account.', true);
-        }
-      })
-      .catch(error => {
-        document.getElementById('loading').style.display = 'none';
-        showStatus('Error fetching albums: ' + error.message, true);
-      });
-    }
-    
     function loadSelectedAlbum() {
       const selectElement = document.getElementById('albums');
       const albumId = selectElement.value;
@@ -528,11 +330,7 @@
       showStatus(`Loading photos from album: "${albumName}"`);
       document.getElementById('loading').style.display = 'block';
       
-      if (accessToken) {
-        loadAlbumItemsWithToken(albumId);
-      } else {
-        loadAlbumItems(albumId);
-      }
+      loadAlbumItems(albumId);
     }
     
     function loadAlbumItems(albumId, pageToken = null) {
@@ -579,65 +377,6 @@
           document.getElementById('loading').style.display = 'none';
           showStatus('Error loading album: ' + JSON.stringify(error, null, 2), true);
         });
-    }
-    
-    function loadAlbumItemsWithToken(albumId, pageToken = null) {
-      const body = {
-        albumId: albumId,
-        pageSize: 100
-      };
-      
-      if (pageToken) {
-        body.pageToken = pageToken;
-      }
-      
-      fetch('https://photoslibrary.googleapis.com/v1/mediaItems:search', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-      })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Failed to fetch media items: ' + response.status);
-        }
-        return response.json();
-      })
-      .then(data => {
-        const mediaItems = data.mediaItems || [];
-        
-        if (mediaItems.length > 0) {
-          if (!pageToken) {
-            // Clear previous slides
-            document.getElementById('slideshow').innerHTML = '<a class="prev" onclick="changeSlide(-1)">&#10094;</a><a class="next" onclick="changeSlide(1)">&#10095;</a>';
-            document.getElementById('thumbnails').innerHTML = '';
-            slides = [];
-          }
-          
-          // Add new items
-          processMediaItems(mediaItems);
-          
-          // If there's a next page, fetch more items
-          if (data.nextPageToken) {
-            loadAlbumItemsWithToken(albumId, data.nextPageToken);
-          } else {
-            finishLoadingAlbum();
-          }
-        } else {
-          if (!pageToken) {
-            showStatus('This album is empty.', true);
-            document.getElementById('loading').style.display = 'none';
-          } else {
-            finishLoadingAlbum();
-          }
-        }
-      })
-      .catch(error => {
-        document.getElementById('loading').style.display = 'none';
-        showStatus('Error loading album: ' + error.message, true);
-      });
     }
     
     function processMediaItems(mediaItems) {
@@ -763,6 +502,9 @@
         }, 5000);
       }
     }
+    
+    // Initialize the API client
+    handleClientLoad();
   </script>
 </body>
 </html>
